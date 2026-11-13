@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Interactive Moving Waveform & BER Simulator</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --border-col: #1f2937;
+      --text-main: #f9fafb;
+      --text-muted: #9ca3af;
+      --accent: #3b82f6;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+  </style>
+</head>
+<body class="p-4 md:p-6 min-h-screen">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <header class="border-b border-gray-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+          <span class="inline-block w-3 h-3 rounded-full bg-blue-500 animate-pulse"></span>
+          Live Digital Modulation & Moving Waveform
+        </h1>
+        <p class="text-sm text-gray-400 mt-1">
+          Interactive baseband transceiver with continuous time-domain oscilloscope, I/Q constellation, and Monte Carlo BER.
+        </p>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="btnRecordVideo" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg shadow transition flex items-center gap-1.5">
+          <span id="recDot" class="w-2 h-2 rounded-full bg-white"></span>
+          <span id="recText">Record Video Clip</span>
+        </button>
+        <button id="btnPause" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
+          Pause Stream
+        </button>
+        <button id="btnResetStats" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold rounded-lg border border-gray-700 transition">
+          Reset Counts
+        </button>
+      </div>
+    </header>
+
+    <!-- Interactive Webform / Controls -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      
+      <!-- Panel 1: Modulation & SNR Webform -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+        <h2 class="text-xs uppercase font-bold tracking-wider text-blue-400">Transceiver Parameters</h2>
+        
+        <div>
+          <label class="block text-xs font-medium text-gray-300 mb-1">Modulation Scheme</label>
+          <select id="modSelect" class="w-full bg-gray-800 border border-gray-700 text-sm rounded-lg p-2 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="BPSK">BPSK (k = 1 bit/sym)</option>
+            <option value="QPSK" selected>QPSK (k = 2 bits/sym)</option>
+            <option value="16QAM">16-QAM (k = 4 bits/sym)</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs text-gray-300 mb-1">
+            <label class="font-medium">E<sub>b</sub> / N<sub>0</sub> (dB)</label>
+            <span id="ebnoLabel" class="font-mono text-blue-400 font-bold">6.0 dB</span>
+          </div>
+          <input id="ebnoSlider" type="range" min="-2" max="16" step="0.5" value="6" class="w-full accent-blue-500 cursor-pointer">
+          <div class="flex justify-between text-[11px] text-gray-500 mt-0.5">
+            <span>-2 dB (High Noise)</span>
+            <span>16 dB (Clean)</span>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-300 mb-1">Pulse Shaping</label>
+          <select id="pulseSelect" class="w-full bg-gray-800 border border-gray-700 text-sm rounded-lg p-2 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="rrc" selected>Root-Raised Cosine (Rolloff = 0.35)</option>
+            <option value="nrz">Rectangular / NRZ</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs text-gray-300 mb-1">
+            <label class="font-medium">Waveform Scroll Speed</label>
+            <span id="speedLabel" class="font-mono text-gray-400">1.0x</span>
+          </div>
+          <input id="speedSlider" type="range" min="0.2" max="2.5" step="0.1" value="1.0" class="w-full accent-blue-500 cursor-pointer">
+        </div>
+      </div>
+
+      <!-- Panel 2: Explicit RF & Variance Metrics -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3 font-mono text-xs">
+        <h2 class="text-xs uppercase font-bold tracking-wider text-green-400">Explicit RF Variables</h2>
+        
+        <div class="space-y-1.5 text-gray-300 border-b border-gray-800 pb-3">
+          <div class="flex justify-between">
+            <span class="text-gray-400">Bits per symbol (k):</span>
+            <span id="valK" class="text-white font-bold">2</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">Average E<sub>s</sub> (Normalized):</span>
+            <span class="text-white">1.0000</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">Bit Energy E<sub>b</sub> = E<sub>s</sub>/k:</span>
+            <span id="valEb" class="text-white">0.5000</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">E<sub>b</sub>/N<sub>0</sub> (linear γ<sub>b</sub>):</span>
+            <span id="valEbNoLin" class="text-white">3.981</span>
+          </div>
+        </div>
+
+        <div class="space-y-1.5 text-gray-300 pt-1">
+          <div class="flex justify-between">
+            <span class="text-gray-400">Noise PSD (N<sub>0</sub>):</span>
+            <span id="valN0" class="text-yellow-400">0.1256</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">1D Var σ<sup>2</sup> = N<sub>0</sub>/2:</span>
+            <span id="valSigma2" class="text-yellow-400">0.0628</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">1D StdDev σ<sub>1D</sub>:</span>
+            <span id="valSigma1D" class="text-yellow-400">0.2506</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">Complex Var E[|w|<sup>2</sup>]:</span>
+            <span id="valSigmaW2" class="text-yellow-400">0.1256</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 3: Live Monte Carlo BER Engine -->
+      <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="text-xs uppercase font-bold tracking-wider text-purple-400">Adaptive Monte Carlo Counter</h2>
+            <span id="stopBadge" class="px-2 py-0.5 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-800">
+              Running
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4 text-center">
+            <div class="bg-gray-800/80 p-2.5 rounded-lg border border-gray-700/60">
+              <div class="text-[10px] uppercase text-gray-400">Bit Errors</div>
+              <div id="statErrors" class="text-lg font-bold text-red-400 font-mono">0</div>
+              <div class="text-[10px] text-gray-500">Target: 200</div>
+            </div>
+            <div class="bg-gray-800/80 p-2.5 rounded-lg border border-gray-700/60">
+              <div class="text-[10px] uppercase text-gray-400">Total Bits</div>
+              <div id="statBits" class="text-lg font-bold text-blue-400 font-mono">0</div>
+              <div class="text-[10px] text-gray-500">Cap: 10<sup>6</sup></div>
+            </div>
+            <div class="bg-gray-800/80 p-2.5 rounded-lg border border-gray-700/60">
+              <div class="text-[10px] uppercase text-gray-400">Empirical BER</div>
+              <div id="statSimBer" class="text-lg font-bold text-white font-mono">0.000</div>
+              <div class="text-[10px] text-gray-500">N<sub>e</sub> / N<sub>bits</sub></div>
+            </div>
+            <div class="bg-gray-800/80 p-2.5 rounded-lg border border-gray-700/60">
+              <div class="text-[10px] uppercase text-gray-400">Theory BER</div>
+              <div id="statTheoBer" class="text-lg font-bold text-emerald-400 font-mono">2.39e-3</div>
+              <div class="text-[10px] text-gray-500">Exact Closed Form</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress to 200 errors or 10^6 bits -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs text-gray-400">
+            <span>Adaptive Progress to Target Threshold</span>
+            <span id="progressText">0%</span>
+          </div>
+          <div class="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+            <div id="progressBar" class="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-150" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live Animated Visualizations -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      
+      <!-- Moving Oscilloscope Waveform (2/3 width) -->
+      <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col">
+        <div class="flex justify-between items-center mb-2">
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs uppercase font-bold tracking-wider text-cyan-400">Live Moving Waveform (Oscilloscope)</h2>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">Time Domain</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs">
+            <span class="flex items-center gap-1.5 text-blue-400">
+              <span class="inline-block w-3 h-0.5 bg-blue-400"></span> In-Phase I(t)
+            </span>
+            <span class="flex items-center gap-1.5 text-emerald-400">
+              <span class="inline-block w-3 h-0.5 bg-emerald-400"></span> Quadrature Q(t)
+            </span>
+            <span class="flex items-center gap-1.5 text-gray-400">
+              <span class="inline-block w-2.5 h-2.5 rounded-full bg-red-400/80"></span> Noisy Samples
+            </span>
+          </div>
+        </div>
+
+        <div class="relative w-full flex-1 min-h-[260px] bg-black/60 rounded-lg border border-gray-800 overflow-hidden">
+          <canvas id="waveformCanvas" class="w-full h-full block"></canvas>
+        </div>
+      </div>
+
+      <!-- Constellation & Slicer (1/3 width) -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col">
+        <div class="flex justify-between items-center mb-2">
+          <h2 class="text-xs uppercase font-bold tracking-wider text-amber-400">I/Q Constellation</h2>
+          <span class="text-[10px] text-gray-500 font-mono">Decision Boundaries</span>
+        </div>
+        <div class="relative w-full flex-1 min-h-[260px] bg-black/60 rounded-lg border border-gray-800 overflow-hidden flex items-center justify-center">
+          <canvas id="constellationCanvas" class="w-full h-full block"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // --- Error function and Q-function approximation ---
+    function erf(x) {
+      const a1 =  0.254829592, a2 = -0.284496736, a3 =  1.421413741;
+      const a4 = -1.453152027, a5 =  1.061405429, p  =  0.3275911;
+      const sign = x < 0 ? -1 : 1;
+      const absx = Math.abs(x);
+      const t = 1.0 / (1.0 + p * absx);
+      const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absx * absx);
+      return sign * y;
+    }
+    function qFunc(x) {
+      return 0.5 * (1.0 - erf(x / Math.SQRT2));
+    }
+
+    // --- Modulation Definitions ---
+    const MODS = {
+      BPSK: {
+        k: 1,
+        M: 2,
+        rawSymbols: [{ i: 1, q: 0, bits: [0] }, { i: -1, q: 0, bits: [1] }],
+        norm: 1.0
+      },
+      QPSK: {
+        k: 2,
+        M: 4,
+        rawSymbols: [
+          { i: 1,  q: 1,  bits: [0, 0] },
+          { i: 1,  q: -1, bits: [0, 1] },
+          { i: -1, q: -1, bits: [1, 1] },
+          { i: -1, q: 1,  bits: [1, 0] }
+        ],
+        norm: 1.0 / Math.SQRT2
+      },
+      "16QAM": {
+        k: 4,
+        M: 16,
+        rawSymbols: [],
+        norm: 1.0 / Math.sqrt(10.0)
+      }
+    };
+
+    (function init16QAM() {
+      const levels = [3, 1, -1, -3];
+      const bits = [[0,0], [0,1], [1,1], [1,0]];
+      for (let i = 0; i < 4; i++) {
+        for (let q = 0; q < 4; q++) {
+          MODS["16QAM"].rawSymbols.push({
+            i: levels[i],
+            q: levels[q],
+            bits: [...bits[i], ...bits[q]]
+          });
+        }
+      }
+    })();
+
+    for (const key in MODS) {
+      const scheme = MODS[key];
+      scheme.symbols = scheme.rawSymbols.map(s => ({
+        i: s.i * scheme.norm,
+        q: s.q * scheme.norm,
+        bits: s.bits
+      }));
+    }
+
+    // --- State Variables ---
+    let currentMod = "QPSK";
+    let ebNoDb = 6.0;
+    let pulseType = "rrc";
+    let speed = 1.0;
+    let isPaused = false;
+
+    let totalErrors = 0;
+    let totalBits = 0;
+    const TARGET_ERRORS = 200;
+    const MAX_BITS = 1000000;
+
+    const SAMPLES_PER_SYM = 16;
+    const BUFFER_POINTS = 320;
+    let waveBufferI = new Float32Array(BUFFER_POINTS);
+    let waveBufferQ = new Float32Array(BUFFER_POINTS);
+    let receivedHistory = [];
+
+    function randn() {
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    function getTheoreticalBer(mod, ebno) {
+      const lin = Math.pow(10, ebno / 10.0);
+      if (mod === "BPSK" || mod === "QPSK") {
+        return qFunc(Math.sqrt(2.0 * lin));
+      } else if (mod === "16QAM") {
+        const t = Math.sqrt(0.8 * lin);
+        return 0.75 * qFunc(t) + 0.5 * qFunc(3 * t) - 0.25 * qFunc(5 * t);
+      }
+      return 0;
+    }
+
+    function updateExplicitVariables() {
+      const scheme = MODS[currentMod];
+      const k = scheme.k;
+      const Es = 1.0;
+      const Eb = Es / k;
+      const ebNoLin = Math.pow(10.0, ebNoDb / 10.0);
+      const N0 = Es / (k * ebNoLin);
+      const sigma1D = Math.sqrt(N0 / 2.0);
+      const sigma2 = N0 / 2.0;
+      const sigmaW2 = N0;
+
+      document.getElementById("valK").innerText = k;
+      document.getElementById("valEb").innerText = Eb.toFixed(4);
+      document.getElementById("valEbNoLin").innerText = ebNoLin.toFixed(3);
+      document.getElementById("valN0").innerText = N0.toFixed(4);
+      document.getElementById("valSigma2").innerText = sigma2.toFixed(4);
+      document.getElementById("valSigma1D").innerText = sigma1D.toFixed(4);
+      document.getElementById("valSigmaW2").innerText = sigmaW2.toFixed(4);
+
+      const theo = getTheoreticalBer(currentMod, ebNoDb);
+      document.getElementById("statTheoBer").innerText = theo < 1e-6 ? "< 1e-6" : theo.toExponential(2);
+
+      return { k, Es, Eb, ebNoLin, N0, sigma1D };
+    }
+
+    function resetAccumulators() {
+      totalErrors = 0;
+      totalBits = 0;
+      document.getElementById("statErrors").innerText = "0";
+      document.getElementById("statBits").innerText = "0";
+      document.getElementById("statSimBer").innerText = "0.000";
+      document.getElementById("progressBar").style.width = "0%";
+      document.getElementById("progressText").innerText = "0%";
+      document.getElementById("stopBadge").innerText = "Running";
+      document.getElementById("stopBadge").className = "px-2 py-0.5 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-800";
+    }
+
+    function demodulate(rxI, rxQ, scheme) {
+      let bestDist = Infinity;
+      let bestSym = scheme.symbols[0];
+      for (let s of scheme.symbols) {
+        const d = (rxI - s.i)**2 + (rxQ - s.q)**2;
+        if (d < bestDist) {
+          bestDist = d;
+          bestSym = s;
+        }
+      }
+      return bestSym;
+    }
+
+    const waveCanvas = document.getElementById("waveformCanvas");
+    const waveCtx = waveCanvas.getContext("2d");
+    const constCanvas = document.getElementById("constellationCanvas");
+    const constCtx = constCanvas.getContext("2d");
+
+    function resizeCanvases() {
+      waveCanvas.width = waveCanvas.clientWidth * window.devicePixelRatio;
+      waveCanvas.height = waveCanvas.clientHeight * window.devicePixelRatio;
+      constCanvas.width = constCanvas.clientWidth * window.devicePixelRatio;
+      constCanvas.height = constCanvas.clientHeight * window.devicePixelRatio;
+    }
+    window.addEventListener("resize", resizeCanvases);
+    resizeCanvases();
+
+    let samplePhase = 0;
+    let currentSym = null;
+    let nextSym = null;
+
+    function getNextRandomSymbol(scheme) {
+      const idx = Math.floor(Math.random() * scheme.symbols.length);
+      return scheme.symbols[idx];
+    }
+
+    const scheme = MODS[currentMod];
+    currentSym = getNextRandomSymbol(scheme);
+    nextSym = getNextRandomSymbol(scheme);
+
+    let lastTime = performance.now();
+
+    function renderLoop(time) {
+      requestAnimationFrame(renderLoop);
+      if (isPaused) return;
+
+      lastTime = time;
+      const vars = updateExplicitVariables();
+      const currentScheme = MODS[currentMod];
+      const steps = Math.max(1, Math.round(speed * 3));
+
+      for (let s = 0; s < steps; s++) {
+        samplePhase++;
+        if (samplePhase >= SAMPLES_PER_SYM) {
+          samplePhase = 0;
+          currentSym = nextSym;
+          nextSym = getNextRandomSymbol(currentScheme);
+
+          const nI = randn() * vars.sigma1D;
+          const nQ = randn() * vars.sigma1D;
+          const rxI = currentSym.i + nI;
+          const rxQ = currentSym.q + nQ;
+
+          receivedHistory.push({ i: rxI, q: rxQ });
+          if (receivedHistory.length > 120) receivedHistory.shift();
+
+          if (totalErrors < TARGET_ERRORS && totalBits < MAX_BITS) {
+            const dec = demodulate(rxI, rxQ, currentScheme);
+            let errs = 0;
+            for (let b = 0; b < currentScheme.k; b++) {
+              if (currentSym.bits[b] !== dec.bits[b]) errs++;
+            }
+            totalErrors += errs;
+            totalBits += currentScheme.k;
+
+            document.getElementById("statErrors").innerText = totalErrors;
+            document.getElementById("statBits").innerText = totalBits.toLocaleString();
+            const ber = totalBits > 0 ? (totalErrors / totalBits) : 0;
+            document.getElementById("statSimBer").innerText = ber < 1e-5 && ber > 0 ? ber.toExponential(2) : ber.toFixed(4);
+
+            const pErr = (totalErrors / TARGET_ERRORS) * 100;
+            const pBits = (totalBits / MAX_BITS) * 100;
+            const progress = Math.min(100, Math.max(pErr, pBits));
+            document.getElementById("progressBar").style.width = progress + "%";
+            document.getElementById("progressText").innerText = progress.toFixed(1) + "%";
+
+            if (totalErrors >= TARGET_ERRORS) {
+              document.getElementById("stopBadge").innerText = "Stopped: 200 Errs";
+              document.getElementById("stopBadge").className = "px-2 py-0.5 rounded text-[10px] bg-red-950 text-red-300 border border-red-800";
+            } else if (totalBits >= MAX_BITS) {
+              document.getElementById("stopBadge").innerText = "Stopped: 10^6 Bits";
+              document.getElementById("stopBadge").className = "px-2 py-0.5 rounded text-[10px] bg-amber-950 text-amber-300 border border-amber-800";
+            }
+          }
+        }
+
+        let valI, valQ;
+        const alpha = samplePhase / SAMPLES_PER_SYM;
+        if (pulseType === "rrc") {
+          const smooth = 0.5 - 0.5 * Math.cos(Math.PI * alpha);
+          valI = currentSym.i * (1 - smooth) + nextSym.i * smooth;
+          valQ = currentSym.q * (1 - smooth) + nextSym.q * smooth;
+        } else {
+          valI = currentSym.i;
+          valQ = currentSym.q;
+        }
+
+        valI += randn() * vars.sigma1D * 0.45;
+        valQ += randn() * vars.sigma1D * 0.45;
+
+        for (let i = 0; i < BUFFER_POINTS - 1; i++) {
+          waveBufferI[i] = waveBufferI[i + 1];
+          waveBufferQ[i] = waveBufferQ[i + 1];
+        }
+        waveBufferI[BUFFER_POINTS - 1] = valI;
+        waveBufferQ[BUFFER_POINTS - 1] = valQ;
+      }
+
+      drawOscilloscope();
+      drawConstellation(currentScheme, vars);
+    }
+
+    function drawOscilloscope() {
+      const w = waveCanvas.width;
+      const h = waveCanvas.height;
+      waveCtx.clearRect(0, 0, w, h);
+
+      waveCtx.strokeStyle = "rgba(75, 85, 99, 0.25)";
+      waveCtx.lineWidth = 1;
+      waveCtx.beginPath();
+      for (let x = 0; x < w; x += w / 8) {
+        waveCtx.moveTo(x, 0); waveCtx.lineTo(x, h);
+      }
+      for (let y = 0; y < h; y += h / 4) {
+        waveCtx.moveTo(0, y); waveCtx.lineTo(w, y);
+      }
+      waveCtx.stroke();
+
+      waveCtx.strokeStyle = "rgba(107, 114, 128, 0.5)";
+      waveCtx.beginPath();
+      waveCtx.moveTo(0, h / 2); waveCtx.lineTo(w, h / 2);
+      waveCtx.stroke();
+
+      const scaleY = h * 0.22;
+      const centerY = h / 2;
+
+      waveCtx.strokeStyle = "#38bdf8";
+      waveCtx.lineWidth = 2.5;
+      waveCtx.beginPath();
+      for (let i = 0; i < BUFFER_POINTS; i++) {
+        const x = (i / (BUFFER_POINTS - 1)) * w;
+        const y = centerY - waveBufferI[i] * scaleY;
+        if (i === 0) waveCtx.moveTo(x, y);
+        else waveCtx.lineTo(x, y);
+      }
+      waveCtx.stroke();
+
+      waveCtx.strokeStyle = "#34d399";
+      waveCtx.lineWidth = 2.0;
+      waveCtx.beginPath();
+      for (let i = 0; i < BUFFER_POINTS; i++) {
+        const x = (i / (BUFFER_POINTS - 1)) * w;
+        const y = centerY - waveBufferQ[i] * scaleY;
+        if (i === 0) waveCtx.moveTo(x, y);
+        else waveCtx.lineTo(x, y);
+      }
+      waveCtx.stroke();
+    }
+
+    function drawConstellation(scheme, vars) {
+      const w = constCanvas.width;
+      const h = constCanvas.height;
+      constCtx.clearRect(0, 0, w, h);
+
+      const cx = w / 2;
+      const cy = h / 2;
+      const scale = Math.min(w, h) * 0.35;
+
+      constCtx.strokeStyle = "rgba(75, 85, 99, 0.4)";
+      constCtx.lineWidth = 1;
+      constCtx.beginPath();
+      constCtx.moveTo(0, cy); constCtx.lineTo(w, cy);
+      constCtx.moveTo(cx, 0); constCtx.lineTo(cx, h);
+      constCtx.stroke();
+
+      if (currentMod === "16QAM") {
+        constCtx.strokeStyle = "rgba(107, 114, 128, 0.25)";
+        constCtx.setLineDash([4, 4]);
+        const b = 2.0 * scheme.norm * scale;
+        [-b, b].forEach(pos => {
+          constCtx.beginPath();
+          constCtx.moveTo(cx + pos, 0); constCtx.lineTo(cx + pos, h);
+          constCtx.moveTo(0, cy + pos); constCtx.lineTo(w, cy + pos);
+          constCtx.stroke();
+        });
+        constCtx.setLineDash([]);
+      }
+
+      for (let pt of receivedHistory) {
+        const px = cx + pt.i * scale;
+        const py = cy - pt.q * scale;
+        constCtx.fillStyle = "rgba(239, 68, 68, 0.65)";
+        constCtx.beginPath();
+        constCtx.arc(px, py, 3, 0, Math.PI * 2);
+        constCtx.fill();
+      }
+
+      for (let s of scheme.symbols) {
+        const px = cx + s.i * scale;
+        const py = cy - s.q * scale;
+
+        constCtx.strokeStyle = "#38bdf8";
+        constCtx.lineWidth = 2;
+        constCtx.fillStyle = "#0284c7";
+        constCtx.beginPath();
+        constCtx.arc(px, py, 6, 0, Math.PI * 2);
+        constCtx.fill();
+        constCtx.stroke();
+
+        constCtx.fillStyle = "#ffffff";
+        constCtx.font = "10px monospace";
+        constCtx.textAlign = "center";
+        constCtx.fillText(s.bits.join(""), px, py - 10);
+      }
+    }
+
+    // --- Video Recorder Feature ---
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let isRecording = false;
+
+    const btnRecord = document.getElementById("btnRecordVideo");
+    const recText = document.getElementById("recText");
+    const recDot = document.getElementById("recDot");
+
+    btnRecord.addEventListener("click", () => {
+      if (!isRecording) {
+        try {
+          const stream = waveCanvas.captureStream(30);
+          mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+          recordedChunks = [];
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) recordedChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `moving_waveform_${currentMod}_${ebNoDb}dB.webm`;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          mediaRecorder.start();
+          isRecording = true;
+          recText.innerText = "Stop & Save Video";
+          recDot.classList.add("animate-ping");
+          btnRecord.classList.replace("bg-rose-600", "bg-red-700");
+        } catch (err) {
+          alert("MediaRecorder error: " + err.message);
+        }
+      } else {
+        mediaRecorder.stop();
+        isRecording = false;
+        recText.innerText = "Record Video Clip";
+        recDot.classList.remove("animate-ping");
+        btnRecord.classList.replace("bg-red-700", "bg-rose-600");
+      }
+    });
+
+    document.getElementById("modSelect").addEventListener("change", (e) => {
+      currentMod = e.target.value;
+      currentSym = getNextRandomSymbol(MODS[currentMod]);
+      nextSym = getNextRandomSymbol(MODS[currentMod]);
+      receivedHistory = [];
+      resetAccumulators();
+    });
+
+    document.getElementById("ebnoSlider").addEventListener("input", (e) => {
+      ebNoDb = parseFloat(e.target.value);
+      document.getElementById("ebnoLabel").innerText = ebNoDb.toFixed(1) + " dB";
+      resetAccumulators();
+    });
+
+    document.getElementById("pulseSelect").addEventListener("change", (e) => {
+      pulseType = e.target.value;
+    });
+
+    document.getElementById("speedSlider").addEventListener("input", (e) => {
+      speed = parseFloat(e.target.value);
+      document.getElementById("speedLabel").innerText = speed.toFixed(1) + "x";
+    });
+
+    document.getElementById("btnPause").addEventListener("click", () => {
+      isPaused = !isPaused;
+      document.getElementById("btnPause").innerText = isPaused ? "Resume Stream" : "Pause Stream";
+      document.getElementById("btnPause").className = isPaused 
+        ? "px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition"
+        : "px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition";
+      if (!isPaused) lastTime = performance.now();
+    });
+
+    document.getElementById("btnResetStats").addEventListener("click", resetAccumulators);
+
+    updateExplicitVariables();
+    requestAnimationFrame(renderLoop);
+  </script>
+</body>
+</html>
